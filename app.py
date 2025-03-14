@@ -25,21 +25,22 @@ class Aluno(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(100), nullable=False)
     idade = db.Column(db.Integer, nullable=False)
-    turma_id = db.Column(db.Integer, db.ForeignKey('turmas.id'))
+    turma_id = db.Column(db.Integer, db.ForeignKey('turmas.id', ondelete="SET NULL"), nullable=True)
     data_nascimento = db.Column(db.Date, nullable=False)
     nota_primeiro_semestre = db.Column(db.Float, nullable=True)
     nota_segundo_semestre = db.Column(db.Float, nullable=True)
     media_final = db.Column(db.Float, nullable=True)
 
+    turma = db.relationship('Turma', backref=db.backref('alunos', lazy=True))
+
 class Turma(db.Model):
     __tablename__ = 'turmas'
     id = db.Column(db.Integer, primary_key=True)
     descricao = db.Column(db.String(100), nullable=False)
-    professor_id = db.Column(db.Integer, db.ForeignKey('professores.id'))
+    professor_id = db.Column(db.Integer, db.ForeignKey('professores.id', ondelete="SET NULL"), nullable=True)
     ativo = db.Column(db.Boolean, nullable=False)
 
     professor = db.relationship('Professor', backref=db.backref('turmas', lazy=True))
-    alunos = db.relationship('Aluno', backref='turma', lazy=True)
 
 
 # Criar as tabelas no banco de dados
@@ -72,11 +73,16 @@ def listar_turmas():
 @app.route('/turmas', methods=['POST'])
 def criar_turma():
     dados = request.json
+
+    if not Professor.query.get(dados['professor_id']):
+        return jsonify({"erro": "Professor não encontrado"}), 400
+    
     nova_turma = Turma(
         descricao=dados['descricao'],
         professor_id=dados['professor_id'],
         ativo=dados['ativo']
     )
+    
     db.session.add(nova_turma)
     db.session.commit()
     return jsonify({"mensagem": "Turma cadastrada com sucesso!"}), 201
@@ -209,6 +215,9 @@ def deletar_professor(id):
 @app.route('/alunos', methods=['POST'])
 def criar_aluno():
     dados = request.json
+
+    if not Turma.query.get(dados['turma_id']):
+        return jsonify({"erro": "Turma não encontrada"}), 400
 
     data_nascimento = datetime.strptime(dados['data_nascimento'], '%Y-%m-%d').date()  # Converte a string de data para um objeto datetime.date
 
