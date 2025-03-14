@@ -124,6 +124,7 @@ def atualizar_turma(id):
 #Rota para os professores
 
 #Criar um professor
+
 @app.route('/professores', methods=['POST'])
 def criar_professor():
     dados = request.json
