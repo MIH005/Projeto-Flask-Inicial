@@ -8,7 +8,7 @@ if defined _OLD_CODEPAGE (
     "%SystemRoot%\System32\chcp.com" 65001 > nul
 )
 
-set VIRTUAL_ENV=C:\Users\Mih\OneDrive\Documentos\imapacta\API\API - Entregável 1\venv
+set VIRTUAL_ENV=C:\Users\Mih\OneDrive\Documentos\imapacta\API\API_Entregavel_1_Emilly\venv
 
 if not defined PROMPT set PROMPT=$P$G
 

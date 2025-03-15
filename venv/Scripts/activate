@@ -35,7 +35,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="C:\Users\Mih\OneDrive\Documentos\imapacta\API\API - Entregável 1\venv"
+VIRTUAL_ENV="C:\Users\Mih\OneDrive\Documentos\imapacta\API\API_Entregavel_1_Emilly\venv"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"

@@ -6,7 +6,6 @@ from datetime import datetime
 app = Flask(__name__)
 
 #-------------Banco de Dados----------------------
-# Configuração do banco de dados SQLite
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///escola.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -19,6 +18,14 @@ class Professor(db.Model):
     idade = db.Column(db.Integer, nullable=False)
     materia = db.Column(db.String(100), nullable=False)
     observacoes = db.Column(db.Text)
+    turma = db.relationship('Turma', backref='professor', lazy=True)
+
+class Turma(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    descricao = db.Column(db.String(100), nullable=False)
+    professor_id = db.Column(db.Integer, db.ForeignKey('professor.id'), nullable=False)
+    ativo = db.Column(db.Boolean, default=True)
+    alunos = db.relationship('Aluno', back_populates='turma')
 
 class Aluno(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -28,15 +35,16 @@ class Aluno(db.Model):
     nota_primeiro_semestre = db.Column(db.Float, nullable=True)
     nota_segundo_semestre = db.Column(db.Float, nullable=True)
     media_final = db.Column(db.Float, nullable=True)
+    turma_id = db.Column(db.Integer, db.ForeignKey('turma.id'), nullable=False)  # Relacionamento direto
+    turma = db.relationship('Turma', back_populates='alunos')
 
-# Criar as tabelas no banco de dados
 with app.app_context():
     db.create_all()
 
 #-----------ROTAS----------------------------------------------------
 @app.route('/')
 def home():
-    return jsonify({"mensagem": "API de Gestão Escolar"}), 200
+    return jsonify({"mensagem": "Sistema Escolar"}), 200
 
 #Rota para os professores
 
@@ -64,6 +72,7 @@ def listar_professores():
             "nome": p.nome, 
             "idade": p.idade, 
             "materia": p.materia, 
+            "turma": [{"id": turma.id, "descricao": turma.descricao} for turma in p.turma],
             "observacoes": p.observacoes
          }
 
@@ -85,27 +94,31 @@ def buscar_professor(id):
         "nome": professor.nome, 
         "idade": professor.idade, 
         "materia": professor.materia, 
+        "turma": [{"id": turma.id, "descricao": turma.descricao} for turma in professor.turma],
         "observacoes": professor.observacoes
     }
 
     return jsonify(resultado)
 
 
-#Atualizar Professor
-@app.route('/professores/<int:id>', methods=['PUT'])
+# Atualizar Professor
+@app.route('/professores/<int:id>', methods=['POST'])
 def atualizar_professor(id):
-    professor = Professor.query.get(id)
-    if not professor:
-        return jsonify({"erro": "Professor não encontrado"}), 404
+    professor = Professor.query.get_or_404(id, description="Professor não encontrado.")
 
     dados = request.json
-    professor.nome = dados['nome']
-    professor.idade = dados['idade']
-    professor.materia = dados['materia']
-    professor.observacoes = dados.get('observacoes', '')
-    
+    if not dados:
+        return jsonify({"erro": "Dados não fornecidos"}), 400
+
+    professor.nome = dados.get('nome', professor.nome)
+    professor.idade = dados.get('idade', professor.idade)
+    professor.materia = dados.get('materia', professor.materia)
+    professor.turma_id = dados.get('turma_id', professor.turma_id)
+    professor.observacoes = dados.get('observacoes', professor.observacoes)
+
     db.session.commit()
     return jsonify({"mensagem": "Professor atualizado com sucesso!"})
+
 
 #Excluir um professor
 @app.route('/professores/<int:id>', methods=['DELETE'])
@@ -126,11 +139,16 @@ def deletar_professor(id):
 def criar_aluno():
     dados = request.json
 
-    data_nascimento = datetime.strptime(dados['data_nascimento'], '%Y-%m-%d').date()  # Converte a string de data para um objeto datetime.date
+    turma = Turma.query.get(dados['turma_id'])
+    if not turma:
+        return jsonify({"erro": "Turma não encontrada"}), 404
+
+    data_nascimento = datetime.strptime(dados['data_nascimento'], '%d-%m-%Y').date()
 
     novo_aluno = Aluno(
         nome=dados['nome'],
         idade=dados['idade'],
+        turma_id=turma.id,
         data_nascimento=data_nascimento,
         nota_primeiro_semestre=dados.get('nota_primeiro_semestre'),
         nota_segundo_semestre=dados.get('nota_segundo_semestre'),
@@ -139,6 +157,7 @@ def criar_aluno():
     db.session.add(novo_aluno)
     db.session.commit()
     return jsonify({"mensagem": "Aluno cadastrado com sucesso!"}), 201
+
 
 #Listar Alunos
 @app.route('/alunos', methods=['GET'])
@@ -149,7 +168,8 @@ def listar_alunos():
             "id": a.id, 
             "nome": a.nome, 
             "idade": a.idade, 
-            'data_nascimento': a.data_nascimento.strftime('%Y-%m-%d'),
+            "turma": {"id": a.turma.id, "descricao": a.turma.descricao} if a.turma else None,
+            'data_nascimento': a.data_nascimento.strftime('%d-%m-%Y'),
             "nota_primeiro_semestre": a.nota_primeiro_semestre, 
             "nota_segundo_semestre": a.nota_segundo_semestre, 
             "media_final": a.media_final
@@ -160,38 +180,61 @@ def listar_alunos():
 
 #Buscar aluno por ID
 @app.route('/alunos/<int:id>', methods=['GET'])
-def buscar_alunos(id):
-    alunos = Aluno.query.get(id)
-    if not alunos:
+def buscar_aluno(id):
+    aluno = Aluno.query.get(id)
+    if not aluno:
         return jsonify({"erro": "Aluno não encontrado"}), 404
-    return jsonify({
-    "id": alunos.id, 
-    "nome": alunos.nome, 
-    "idade": alunos.idade, 
-    "data_nascimento": alunos.data_nascimento, 
-    "nota_primeiro_semestre": alunos.nota_primeiro_semestre, 
-    "nota_segundo_semestre": alunos.nota_segundo_semestre, 
-    "media_final": alunos.media_final
-})
+    
+    resultado = {
+
+            "id": aluno.id, 
+            "nome": aluno.nome, 
+            "idade": aluno.idade, 
+            "turma": {"id": aluno.turma.id, "descricao": aluno.turma.descricao} if aluno.turma else None,
+            'data_nascimento': aluno.data_nascimento.strftime('%d-%m-%Y'),
+            "nota_primeiro_semestre": aluno.nota_primeiro_semestre, 
+            "nota_segundo_semestre": aluno.nota_segundo_semestre, 
+            "media_final": aluno.media_final
+        }
+    
+    return jsonify(resultado)
 
 
-#Atualizar Aluno
-@app.route('/aluno/<int:id>', methods=['PUT'])
+@app.route('/alunos/<int:id>', methods=['PUT'])
 def atualizar_aluno(id):
-    alunos = Aluno.query.get(id)
-    if not alunos:
+    aluno = Aluno.query.get(id)
+    if not aluno:
         return jsonify({"erro": "Aluno não encontrado"}), 404
 
     dados = request.json
-    alunos.nome=dados['nome']
-    alunos.idade=dados['idade']
-    alunos.data_nascimento=dados['data_nascimento']
-    alunos.nota_primeiro_semestre=dados.get('nota_primeiro_semestre')
-    alunos.nota_segundo_semestre=dados.get('nota_segundo_semestre')
-    alunos.media_final=dados.get('media_final')
+
+    if 'turma_id' in dados:
+        turma = Turma.query.get(dados['turma_id'])
+        if not turma:
+            return jsonify({"erro": "Turma não encontrada"}), 404
+        aluno.turma_id = turma.id
+
+    if 'nome' in dados:
+        aluno.nome = dados['nome']
+    
+    if 'idade' in dados:
+        aluno.idade = dados['idade']
+
+    if 'data_nascimento' in dados:
+        aluno.data_nascimento = datetime.strptime(dados['data_nascimento'], '%d-%m-%Y').date()
+
+    if 'nota_primeiro_semestre' in dados:
+        aluno.nota_primeiro_semestre = dados['nota_primeiro_semestre']
+
+    if 'nota_segundo_semestre' in dados:
+        aluno.nota_segundo_semestre = dados['nota_segundo_semestre']
+
+    if 'media_final' in dados:
+        aluno.media_final = dados['media_final']
     
     db.session.commit()
     return jsonify({"mensagem": "Aluno atualizado com sucesso!"})
+
 
 #Excluir Aluno
 @app.route('/alunos/<int:id>', methods=['DELETE'])
@@ -204,5 +247,87 @@ def deletar_alunos(id):
     db.session.commit()
     return jsonify({"mensagem": "Aluno deletado com sucesso!"})
 
-if __name__ == '__main__':
-    app.run(debug=True)
+
+#Rotas para Turma
+
+#Adicionar Turmas
+@app.route('/turmas', methods=['POST'])
+def adicionar_turma():
+    dados = request.json
+    nova_turma = Turma(
+        descricao=dados['descricao'],
+        professor_id=dados['professor_id'],
+        ativo=dados.get('ativo', True)
+    )
+    db.session.add(nova_turma)
+    db.session.commit()
+    return jsonify({'mensagem': 'Turma adicionada com sucesso!', 'id': nova_turma.id}), 201
+
+#Listar turmas 
+@app.route('/turmas', methods=['GET'])
+def listar_turmas():
+    turmas = Turma.query.all()
+    resultado = []
+    for turma in turmas:
+        resultado.append({
+            'turma_id': turma.id,
+            'descricao': turma.descricao,
+            'professor_id': turma.professor_id,
+            'ativo': turma.ativo,
+            'alunos': [{'id': aluno.id, 'nome': aluno.nome} for aluno in turma.alunos]
+        })
+    return jsonify(resultado)
+
+#Buscar turma por ID
+@app.route('/turmas/<int:id>', methods=['GET'])
+def buscar_turma_por_id(id):
+    turma = Turma.query.get(id)
+    if turma:
+        return jsonify({
+            'id': turma.id,
+            'descricao': turma.descricao,
+            'professor_id': turma.professor_id,
+            'ativo': turma.ativo,
+            'alunos': [{'id': aluno.id, 'nome': aluno.nome} for aluno in turma.alunos]
+        })
+    return jsonify({'mensagem': 'Turma não encontrada'}), 404
+
+# Atualizar Turma
+@app.route('/turmas/<int:id>', methods=['POST'])
+def atualizar_turma(id):
+    turma = Turma.query.get(id)
+    if not turma:
+        return jsonify({"erro": "Turma não encontrada"}), 404
+
+    dados = request.json
+
+    if 'descricao' in dados:
+        turma.descricao = dados['descricao']
+
+    if 'professor_id' in dados:
+        professor = Professor.query.get(dados['professor_id'])
+        if not professor:
+            return jsonify({"erro": "Professor não encontrado"}), 404
+        turma.professor_id = dados['professor_id']
+
+    if 'ativo' in dados:
+        turma.ativo = dados['ativo']
+
+    db.session.commit()
+    return jsonify({"mensagem": "Turma atualizada com sucesso!"})
+
+
+#Excluir Turma
+@app.route('/turmas/<int:id>', methods=['DELETE'])
+def deletar_turma(id):
+    turmas = Turma.query.get(id)
+    if not turmas:
+        return jsonify({"erro": "Turma não encontrado"}), 404
+    
+    db.session.delete(turmas)
+    db.session.commit()
+    return jsonify({"mensagem": "Turma deletado com sucesso!"})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
+
